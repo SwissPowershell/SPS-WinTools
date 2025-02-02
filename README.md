@@ -1,6 +1,6 @@
 # SPS-WinTools Module
 
-First I want to thans [@guyrleech](https://github.com/guyrleech) for his script `Get-ProcessRelatives` which I have integrated in the SPS-WinTools module. I have made some changes to the script to make it more modular.
+First I want to thanks [@guyrleech](https://github.com/guyrleech) for his script `Get-ProcessRelatives` which I have integrated in the SPS-WinTools module. I have made some changes to the script to make it more modular.
 
 ## Overview
 
