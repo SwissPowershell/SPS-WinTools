@@ -348,6 +348,273 @@ Function Get-Caller {
 #endregion GetCaller
 #region Active directory functions
 # these function are based on https://github.com/techspence/ScriptSentry/blob/main/Invoke-ScriptSentry.ps1
+
+[Flags()] enum UACFlags {
+    SCRIPT = 1
+    ACCOUNTDISABLE = 2
+    HOMEDIR_REQUIRED = 8
+    LOCKOUT = 16
+    PASSWD_NOTREQD = 32
+    PASSWD_CANT_CHANGE = 64
+    ENCRYPTED_TEXT_PWD_ALLOWED = 128
+    TEMP_DUPLICATE_ACCOUNT = 256
+    NORMAL_ACCOUNT = 512
+    INTERDOMAIN_TRUST_ACCOUNT = 2048
+    WORKSTATION_TRUST_ACCOUNT = 4096
+    SERVER_TRUST_ACCOUNT = 8192
+    DONT_EXPIRE_PASSWORD = 65536
+    MNS_LOGON_ACCOUNT = 131072
+    SMARTCARD_REQUIRED = 262144
+    TRUSTED_FOR_DELEGATION = 524288
+    NOT_DELEGATED = 1048576
+    USE_DES_KEY_ONLY = 2097152
+    DONT_REQ_PREAUTH = 4194304
+    PASSWORD_EXPIRED = 8388608
+    TRUSTED_TO_AUTH_FOR_DELEGATION = 16777216
+    PARTIAL_SECRETS_ACCOUNT = 67108864
+}
+
+Add-Type @"
+public enum GroupType : long {
+    GROUP_TYPE_BUILTIN_LOCAL_GROUP = 0x00000001,
+    GROUP_TYPE_ACCOUNT_GROUP = 0x00000002,
+    GROUP_TYPE_RESOURCE_GROUP = 0x00000004,
+    GROUP_TYPE_UNIVERSAL_GROUP = 0x00000008,
+    GROUP_TYPE_APP_BASIC_GROUP = 0x00000010,
+    GROUP_TYPE_APP_QUERY_GROUP = 0x00000020,
+    GROUP_TYPE_SECURITY_ENABLED = 0x80000000
+}
+"@
+
+Add-Type @"
+public enum SamAccountType : long {
+    SAM_DOMAIN_OBJECT = 0x0,
+    SAM_GROUP_OBJECT = 0x10000000,
+    SAM_NON_SECURITY_GROUP_OBJECT = 0x10000001,
+    SAM_ALIAS_OBJECT = 0x20000000,
+    SAM_NON_SECURITY_ALIAS_OBJECT = 0x20000001,
+    SAM_USER_OBJECT = 0x30000000,
+    SAM_NORMAL_USER_ACCOUNT = 0x30000000,
+    SAM_MACHINE_ACCOUNT = 0x30000001,
+    SAM_TRUST_ACCOUNT = 0x30000002,
+    SAM_APP_BASIC_GROUP = 0x40000000,
+    SAM_APP_QUERY_GROUP = 0x40000001,
+    SAM_ACCOUNT_TYPE_MAX = 0x7fffffff
+}
+"@
+
+Function Convert-ADName {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [OutputType([String])]
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $True, ValueFromPipeline = $True, ValueFromPipelineByPropertyName = $True)]
+        [Alias('Name', 'ObjectName')]
+        [String[]] ${Identity},
+
+        [ValidateSet('DN', 'Canonical', 'NT4', 'Display', 'DomainSimple', 'EnterpriseSimple', 'GUID', 'Unknown', 'UPN', 'CanonicalEx', 'SPN')]
+        [String] ${OutputType},
+
+        [ValidateNotNullOrEmpty()]
+        [String] ${Domain},
+
+        [ValidateNotNullOrEmpty()]
+        [Alias('DomainController')]
+        [String] ${Server},
+
+        [Management.Automation.PSCredential]
+        [Management.Automation.CredentialAttribute()]
+        ${Credential} = [Management.Automation.PSCredential]::Empty
+    )
+
+    BEGIN {
+        $NameTypes = @{
+            'DN'                =   1  # CN=Phineas Flynn,OU=Engineers,DC=fabrikam,DC=com
+            'Canonical'         =   2  # fabrikam.com/Engineers/Phineas Flynn
+            'NT4'               =   3  # fabrikam\pflynn
+            'Display'           =   4  # pflynn
+            'DomainSimple'      =   5  # pflynn@fabrikam.com
+            'EnterpriseSimple'  =   6  # pflynn@fabrikam.com
+            'GUID'              =   7  # {95ee9fff-3436-11d1-b2b0-d15ae3ac8436}
+            'Unknown'           =   8  # unknown type - let the server do translation
+            'UPN'               =   9  # pflynn@fabrikam.com
+            'CanonicalEx'       =   10 # fabrikam.com/Users/Phineas Flynn
+            'SPN'               =   11 # HTTP/kairomac.contoso.com
+            'SID'               =   12 # S-1-5-21-12986231-600641547-709122288-57999
+        }
+
+        # accessor functions from Bill Stewart to simplify calls to NameTranslate
+        Function Invoke-Method {
+            Param (
+                [__ComObject] $Object,
+                [String] $Method,
+                $Parameters
+            )
+            $Output = $Null
+            $Output = $Object.GetType().InvokeMember($Method, 'InvokeMethod', $NULL, $Object, $Parameters)
+            Write-Output $Output
+        }
+
+        Function Get-Property {
+            Param(
+                [__ComObject] $Object,
+                [String] $Property
+            )
+            $Object.GetType().InvokeMember($Property, 'GetProperty', $NULL, $Object, $NULL)
+        }
+
+        Function Set-Property {
+            Param(
+                [__ComObject] $Object,
+                [String] $Property,
+                $Parameters
+            )
+            [Void] $Object.GetType().InvokeMember($Property, 'SetProperty', $NULL, $Object, $Parameters)
+        }
+
+        # https://msdn.microsoft.com/en-us/library/aa772266%28v=vs.85%29.aspx
+        If ($PSBoundParameters['Server']) {
+            $ADSInitType = 2
+            $InitName = $Server
+        }ElseIf ($PSBoundParameters['Domain']) {
+            $ADSInitType = 1
+            $InitName = $Domain
+        }ElseIf ($PSBoundParameters['Credential']) {
+            $Cred = $Credential.GetNetworkCredential()
+            $ADSInitType = 1
+            $InitName = $Cred.Domain
+        }Else {
+            # if no domain or server is specified, default to GC initialization
+            $ADSInitType = 3
+            $InitName = $Null
+        }
+    }
+
+    PROCESS {
+        ForEach ($TargetIdentity in $Identity) {
+            If (-not $PSBoundParameters['OutputType']) {
+                If ($TargetIdentity -match "^[A-Za-z]+\\[A-Za-z ]+") {
+                    $ADSOutputType = $NameTypes['DomainSimple']
+                }Else {
+                    $ADSOutputType = $NameTypes['NT4']
+                }
+            }Else {
+                $ADSOutputType = $NameTypes[$OutputType]
+            }
+
+            $Translate = New-Object -ComObject NameTranslate
+
+            If ($PSBoundParameters['Credential']) {
+                Try {
+                    $Cred = $Credential.GetNetworkCredential()
+
+                    Invoke-Method -Object $Translate -Method 'InitEx' (
+                        $ADSInitType,
+                        $InitName,
+                        $Cred.UserName,
+                        $Cred.Domain,
+                        $Cred.Password
+                    )
+                }Catch {
+                    Write-Verbose "[Convert-ADName] Error initializing translation for '$($Identity)' using alternate credentials : $($_.Exception.InnerException.Message)"
+                }
+            }Else {
+                Try {
+                    $Null = Invoke-Method -Object $Translate -Method 'Init' -Parameters ($ADSInitType,$InitName)
+                }Catch {
+                    Write-Verbose "[Convert-ADName] Error initializing translation for '$($Identity)' : $($_.Exception.InnerException.Message)"
+                }
+            }
+
+            # always chase all referrals
+            Set-Property -Object $Translate -Property 'ChaseReferral' -Parameters (0x60)
+
+            Try {
+                # 8 = Unknown name type -> let the server do the work for us
+                $Null = Invoke-Method -Object $Translate -Method 'Set' -Parameters (8, $TargetIdentity)
+                Invoke-Method -Object $Translate -Method 'Get' -Parameters ($ADSOutputType)
+            }Catch [System.Management.Automation.MethodInvocationException] {
+                Write-Verbose "[Convert-ADName] Error translating '$($TargetIdentity)' : $($_.Exception.InnerException.Message)"
+            }
+        }
+    }
+}
+Function Convert-LDAPProperty {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '')]
+    [OutputType('System.Management.Automation.PSCustomObject')]
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $True, ValueFromPipeline = $True)]
+        [ValidateNotNullOrEmpty()]
+        $Properties
+    )
+
+    $ObjectProperties = @{}
+
+    $Properties.PropertyNames | ForEach-Object {
+        If ($_ -ne 'adspath') {
+            If (($_ -eq 'objectsid') -or ($_ -eq 'sidhistory')) {
+                # convert all listed sids (i.e. if multiple are listed in sidHistory)
+                $ObjectProperties[$_] = $Properties[$_] | ForEach-Object { (New-Object System.Security.Principal.SecurityIdentifier($_, 0)).Value }
+            }ElseIf ($_ -eq 'grouptype') {
+                $ObjectProperties[$_] = $Properties[$_][0] -as [GroupType]
+            }ElseIf ($_ -eq 'samaccounttype') {
+                $ObjectProperties[$_] = $Properties[$_][0] -as [SamAccountType]
+            }ElseIf ($_ -eq 'objectguid') {
+                # convert the GUID to a string
+                $ObjectProperties[$_] = (New-Object Guid (,$Properties[$_][0])).Guid
+            }ElseIf ($_ -eq 'useraccountcontrol') {
+                $ObjectProperties[$_] = $Properties[$_][0] -as [UACFlags]
+            }ElseIf ($_ -eq 'ntsecuritydescriptor') {
+                # $ObjectProperties[$_] = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList $Properties[$_][0], 0
+                $Descriptor = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList $Properties[$_][0], 0
+                If ($Descriptor.Owner) { $ObjectProperties['Owner'] = $Descriptor.Owner }
+                If ($Descriptor.Group) { $ObjectProperties['Group'] = $Descriptor.Group }
+                If ($Descriptor.DiscretionaryAcl) { $ObjectProperties['DiscretionaryAcl'] = $Descriptor.DiscretionaryAcl }
+                If ($Descriptor.SystemAcl) { $ObjectProperties['SystemAcl'] = $Descriptor.SystemAcl }
+            }ElseIf ($_ -eq 'accountexpires') {
+                If ($Properties[$_][0] -gt [DateTime]::MaxValue.Ticks) {
+                    $ObjectProperties[$_] = "NEVER"
+                }Else {
+                    $ObjectProperties[$_] = [datetime]::fromfiletime($Properties[$_][0])
+                }
+            }ElseIf ( ($_ -eq 'lastlogon') -or ($_ -eq 'lastlogontimestamp') -or ($_ -eq 'pwdlastset') -or ($_ -eq 'lastlogoff') -or ($_ -eq 'badPasswordTime') ) {
+                # convert timestamps
+                If ($Properties[$_][0] -is [System.MarshalByRefObject]) {
+                    # if we have a System.__ComObject
+                    $Temp = $Properties[$_][0]
+                    [Int32]$High = $Temp.GetType().InvokeMember('HighPart', [System.Reflection.BindingFlags]::GetProperty, $Null, $Temp, $Null)
+                    [Int32]$Low  = $Temp.GetType().InvokeMember('LowPart',  [System.Reflection.BindingFlags]::GetProperty, $Null, $Temp, $Null)
+                    $ObjectProperties[$_] = ([datetime]::FromFileTime([Int64]("0x{0:x8}{1:x8}" -f $High, $Low)))
+                }Else {
+                    # otherwise just a string
+                    $ObjectProperties[$_] = ([datetime]::FromFileTime(($Properties[$_][0])))
+                }
+            }ElseIf ($Properties[$_][0] -is [System.MarshalByRefObject]) {
+                # try to convert misc com objects
+                $Prop = $Properties[$_]
+                Try {
+                    $Temp = $Prop[$_][0]
+                    [Int32]$High = $Temp.GetType().InvokeMember('HighPart', [System.Reflection.BindingFlags]::GetProperty, $Null, $Temp, $Null)
+                    [Int32]$Low  = $Temp.GetType().InvokeMember('LowPart',  [System.Reflection.BindingFlags]::GetProperty, $Null, $Temp, $Null)
+                    $ObjectProperties[$_] = [Int64]("0x{0:x8}{1:x8}" -f $High, $Low)
+                }Catch {
+                    Write-Verbose "[Convert-LDAPProperty] error: $_"
+                    $ObjectProperties[$_] = $Prop[$_]
+                }
+            }ElseIf ($Properties[$_].count -eq 1) {
+                $ObjectProperties[$_] = $Properties[$_][0]
+            }Else {
+                $ObjectProperties[$_] = $Properties[$_]
+            }
+        }
+    }
+    Try {
+        New-Object -TypeName PSObject -Property $ObjectProperties
+    }Catch {
+        Write-Warning "[Convert-LDAPProperty] Error parsing LDAP properties : $($_.Exception.Message)"
+    }
+}
 Function Get-CurrentForest {
     <#
         .SYNOPSIS
@@ -446,57 +713,6 @@ Function Get-Domain {
     }
 }
 Function Get-DomainSearcher {
-    <#
-        .SYNOPSIS
-        Get a DirectorySearcher object for a specified domain.
-
-        .DESCRIPTION
-        This function retrieves a DirectorySearcher object for a specified domain.
-
-        .PARAMETER Domain
-        The domain to retrieve. If not specified, the current domain is retrieved.
-
-        .PARAMETER LDAPFilter
-        The LDAP filter to use for the search.
-
-        .PARAMETER Properties
-        The properties to retrieve for each object.
-
-        .PARAMETER SearchBase
-        The search base to use for the search.
-
-        .PARAMETER SearchBasePrefix
-        The search base prefix to use for the search.
-
-        .PARAMETER Server
-        The domain controller to use for the search.
-
-        .PARAMETER SearchScope
-        The search scope to use for the search.
-
-        .PARAMETER ResultPageSize
-        The result page size to use for the search.
-
-        .PARAMETER ServerTimeLimit
-        The server time limit to use for the search.
-
-        .PARAMETER SecurityMasks
-        The security masks to use for the search.
-
-        .PARAMETER Tombstone
-        The tombstone to use for the search.
-
-        .PARAMETER Credential
-        The credentials to use to retrieve the domain.
-
-        .EXAMPLE
-        Get-DomainSearcher -Domain 'contoso.com' -LDAPFilter '(objectClass=user)' -Properties @('name', 'distinguishedName') -SearchBase 'DC=contoso,DC=com' -SearchBasePrefix 'CN=Users' -Server 'dc01.contoso.com' -SearchScope 'Subtree' -ResultPageSize 200 -ServerTimeLimit 120 -SecurityMasks 'Dacl' -Tombstone -Credential (Get-Credential)
-
-        Get a DirectorySearcher object for the domain 'contoso.com' with the specified parameters.
-
-        .NOTES
-
-    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '')]
     [OutputType('System.DirectoryServices.DirectorySearcher')]
     [CmdletBinding()]
@@ -957,7 +1173,6 @@ Function Get-DomainGroupMember {
         }
     }
 }
-
 Function Get-DomainUser {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '')]
@@ -1299,245 +1514,3 @@ Function Get-DomainObject {
         }
     }
 }
-
-Function Convert-ADName {
-    <#
-    .SYNOPSIS
-
-    Converts Active Directory object names between a variety of formats.
-
-    Author: Bill Stewart, Pasquale Lantella
-    Modifications: Will Schroeder (@harmj0y)
-    License: BSD 3-Clause
-    Required Dependencies: None
-
-    .DESCRIPTION
-
-    This function is heavily based on Bill Stewart's code and Pasquale Lantella's code (in LINK)
-    and translates Active Directory names between various formats using the NameTranslate COM object.
-
-    .PARAMETER Identity
-
-    Specifies the Active Directory object name to translate, of the following form:
-
-        DN                short for 'distinguished name'; e.g., 'CN=Phineas Flynn,OU=Engineers,DC=fabrikam,DC=com'
-        Canonical         canonical name; e.g., 'fabrikam.com/Engineers/Phineas Flynn'
-        NT4               domain\username; e.g., 'fabrikam\pflynn'
-        Display           display name, e.g. 'pflynn'
-        DomainSimple      simple domain name format, e.g. 'pflynn@fabrikam.com'
-        EnterpriseSimple  simple enterprise name format, e.g. 'pflynn@fabrikam.com'
-        GUID              GUID; e.g., '{95ee9fff-3436-11d1-b2b0-d15ae3ac8436}'
-        UPN               user principal name; e.g., 'pflynn@fabrikam.com'
-        CanonicalEx       extended canonical name format
-        SPN               service principal name format; e.g. 'HTTP/kairomac.contoso.com'
-        SID               Security Identifier; e.g., 'S-1-5-21-12986231-600641547-709122288-57999'
-
-    .PARAMETER OutputType
-
-    Specifies the output name type you want to convert to, which must be one of the following:
-
-        DN                short for 'distinguished name'; e.g., 'CN=Phineas Flynn,OU=Engineers,DC=fabrikam,DC=com'
-        Canonical         canonical name; e.g., 'fabrikam.com/Engineers/Phineas Flynn'
-        NT4               domain\username; e.g., 'fabrikam\pflynn'
-        Display           display name, e.g. 'pflynn'
-        DomainSimple      simple domain name format, e.g. 'pflynn@fabrikam.com'
-        EnterpriseSimple  simple enterprise name format, e.g. 'pflynn@fabrikam.com'
-        GUID              GUID; e.g., '{95ee9fff-3436-11d1-b2b0-d15ae3ac8436}'
-        UPN               user principal name; e.g., 'pflynn@fabrikam.com'
-        CanonicalEx       extended canonical name format, e.g. 'fabrikam.com/Users/Phineas Flynn'
-        SPN               service principal name format; e.g. 'HTTP/kairomac.contoso.com'
-
-    .PARAMETER Domain
-
-    Specifies the domain to use for the translation, defaults to the current domain.
-
-    .PARAMETER Server
-
-    Specifies an Active Directory server (domain controller) to bind to for the translation.
-
-    .PARAMETER Credential
-
-    Specifies an alternate credential to use for the translation.
-
-    .EXAMPLE
-
-    Convert-ADName -Identity "TESTLAB\harmj0y"
-
-    harmj0y@testlab.local
-
-    .EXAMPLE
-
-    "TESTLAB\krbtgt", "CN=Administrator,CN=Users,DC=testlab,DC=local" | Convert-ADName -OutputType Canonical
-
-    testlab.local/Users/krbtgt
-    testlab.local/Users/Administrator
-
-    .EXAMPLE
-
-    Convert-ADName -OutputType dn -Identity 'TESTLAB\harmj0y' -Server PRIMARY.testlab.local
-
-    CN=harmj0y,CN=Users,DC=testlab,DC=local
-
-    .EXAMPLE
-
-    $SecPassword = ConvertTo-SecureString 'Password123!' -AsPlainText -Force
-    $Cred = New-Object System.Management.Automation.PSCredential('TESTLAB\dfm', $SecPassword)
-    'S-1-5-21-890171859-3433809279-3366196753-1108' | Convert-ADNAme -Credential $Cred
-
-    TESTLAB\harmj0y
-
-    .INPUTS
-
-    String
-
-    Accepts one or more objects name strings on the pipeline.
-
-    .OUTPUTS
-
-    String
-
-    Outputs a string representing the converted name.
-
-    .LINK
-
-    http://windowsitpro.com/active-directory/translating-active-directory-object-names-between-formats
-    https://gallery.technet.microsoft.com/scriptcenter/Translating-Active-5c80dd67
-    #>
-
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
-    [OutputType([String])]
-    [CmdletBinding()]
-    Param(
-        [Parameter(Mandatory = $True, ValueFromPipeline = $True, ValueFromPipelineByPropertyName = $True)]
-        [Alias('Name', 'ObjectName')]
-        [String[]] ${Identity},
-
-        [ValidateSet('DN', 'Canonical', 'NT4', 'Display', 'DomainSimple', 'EnterpriseSimple', 'GUID', 'Unknown', 'UPN', 'CanonicalEx', 'SPN')]
-        [String] ${OutputType},
-
-        [ValidateNotNullOrEmpty()]
-        [String] ${Domain},
-
-        [ValidateNotNullOrEmpty()]
-        [Alias('DomainController')]
-        [String] ${Server},
-
-        [Management.Automation.PSCredential]
-        [Management.Automation.CredentialAttribute()]
-        ${Credential} = [Management.Automation.PSCredential]::Empty
-    )
-
-    BEGIN {
-        $NameTypes = @{
-            'DN'                =   1  # CN=Phineas Flynn,OU=Engineers,DC=fabrikam,DC=com
-            'Canonical'         =   2  # fabrikam.com/Engineers/Phineas Flynn
-            'NT4'               =   3  # fabrikam\pflynn
-            'Display'           =   4  # pflynn
-            'DomainSimple'      =   5  # pflynn@fabrikam.com
-            'EnterpriseSimple'  =   6  # pflynn@fabrikam.com
-            'GUID'              =   7  # {95ee9fff-3436-11d1-b2b0-d15ae3ac8436}
-            'Unknown'           =   8  # unknown type - let the server do translation
-            'UPN'               =   9  # pflynn@fabrikam.com
-            'CanonicalEx'       =   10 # fabrikam.com/Users/Phineas Flynn
-            'SPN'               =   11 # HTTP/kairomac.contoso.com
-            'SID'               =   12 # S-1-5-21-12986231-600641547-709122288-57999
-        }
-
-        # accessor functions from Bill Stewart to simplify calls to NameTranslate
-        Function Invoke-Method {
-            Param (
-                [__ComObject] $Object,
-                [String] $Method,
-                $Parameters
-            )
-            $Output = $Null
-            $Output = $Object.GetType().InvokeMember($Method, 'InvokeMethod', $NULL, $Object, $Parameters)
-            Write-Output $Output
-        }
-
-        Function Get-Property {
-            Param(
-                [__ComObject] $Object,
-                [String] $Property
-            )
-            $Object.GetType().InvokeMember($Property, 'GetProperty', $NULL, $Object, $NULL)
-        }
-
-        Function Set-Property {
-            Param(
-                [__ComObject] $Object,
-                [String] $Property,
-                $Parameters
-            )
-            [Void] $Object.GetType().InvokeMember($Property, 'SetProperty', $NULL, $Object, $Parameters)
-        }
-
-        # https://msdn.microsoft.com/en-us/library/aa772266%28v=vs.85%29.aspx
-        If ($PSBoundParameters['Server']) {
-            $ADSInitType = 2
-            $InitName = $Server
-        }ElseIf ($PSBoundParameters['Domain']) {
-            $ADSInitType = 1
-            $InitName = $Domain
-        }ElseIf ($PSBoundParameters['Credential']) {
-            $Cred = $Credential.GetNetworkCredential()
-            $ADSInitType = 1
-            $InitName = $Cred.Domain
-        }Else {
-            # if no domain or server is specified, default to GC initialization
-            $ADSInitType = 3
-            $InitName = $Null
-        }
-    }
-
-    PROCESS {
-        ForEach ($TargetIdentity in $Identity) {
-            If (-not $PSBoundParameters['OutputType']) {
-                If ($TargetIdentity -match "^[A-Za-z]+\\[A-Za-z ]+") {
-                    $ADSOutputType = $NameTypes['DomainSimple']
-                }Else {
-                    $ADSOutputType = $NameTypes['NT4']
-                }
-            }Else {
-                $ADSOutputType = $NameTypes[$OutputType]
-            }
-
-            $Translate = New-Object -ComObject NameTranslate
-
-            If ($PSBoundParameters['Credential']) {
-                Try {
-                    $Cred = $Credential.GetNetworkCredential()
-
-                    Invoke-Method -Object $Translate -Method 'InitEx' (
-                        $ADSInitType,
-                        $InitName,
-                        $Cred.UserName,
-                        $Cred.Domain,
-                        $Cred.Password
-                    )
-                }Catch {
-                    Write-Verbose "[Convert-ADName] Error initializing translation for '$($Identity)' using alternate credentials : $($_.Exception.InnerException.Message)"
-                }
-            }Else {
-                Try {
-                    $Null = Invoke-Method -Object $Translate -Method 'Init' -Parameters ($ADSInitType,$InitName)
-                }Catch {
-                    Write-Verbose "[Convert-ADName] Error initializing translation for '$($Identity)' : $($_.Exception.InnerException.Message)"
-                }
-            }
-
-            # always chase all referrals
-            Set-Property -Object $Translate -Property 'ChaseReferral' -Parameters (0x60)
-
-            Try {
-                # 8 = Unknown name type -> let the server do the work for us
-                $Null = Invoke-Method -Object $Translate -Method 'Set' -Parameters (8, $TargetIdentity)
-                Invoke-Method -Object $Translate -Method 'Get' -Parameters ($ADSOutputType)
-            }Catch [System.Management.Automation.MethodInvocationException] {
-                Write-Verbose "[Convert-ADName] Error translating '$($TargetIdentity)' : $($_.Exception.InnerException.Message)"
-            }
-        }
-    }
-}
-
-## Have a look to https://github.com/PowerShellMafia/PowerSploit/tree/master
