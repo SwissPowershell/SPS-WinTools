@@ -607,7 +607,7 @@ Function Get-DomainSearcher {
 
         $SearchStringArray.Add($DN)
         # Convert the collection of string to an array of string
-        [String[]] $SearchString = $SearchStringArray
+        [String] $SearchString = $SearchStringArray -join ''
         Write-Verbose "[Get-DomainSearcher] search base: $($SearchString)"
 
         If ($Credential -ne [Management.Automation.PSCredential]::Empty) {
