@@ -64,7 +64,7 @@ Function Get-ProcessRelatives {
 
         .PARAMETER noOwner
             Excludes the owner from the output if specified which speeds up the script.
-            
+
         .PARAMETER sessionId
             Process all processes passed via -id or -name regardless of session if * is passed (default)
             Only process processes passed via -id or -name if they are in the same session as the script if -1 is passed
@@ -208,7 +208,7 @@ Function Get-ProcessRelatives {
                     ## clone() method not available in PS 7.x
                     $Clone = [CimInstance]::new($ProcessDetail)
 
-                    Add-Member -InputObject $Clone -PassThru -NotePropertyMembers @{ 
+                    Add-Member -InputObject $Clone -PassThru -NotePropertyMembers @{
                         ## return
                         Owner   = $Owner
                         Service = $Service
@@ -231,7 +231,7 @@ Function Get-ProcessRelatives {
                 }
             }
         }
-        
+
     }
     PROCESS {
         ## Get the session id of the current process
@@ -968,61 +968,61 @@ Function Get-DomainUser {
             [Parameter(Position = 0, ValueFromPipeline = $True, ValueFromPipelineByPropertyName = $True)]
             [Alias('DistinguishedName', 'SamAccountName', 'Name', 'MemberDistinguishedName', 'MemberName')]
             [String[]] ${Identity},
-    
+
             [Switch] ${SPN},
-    
+
             [Switch] ${AdminCount},
-    
+
             [Parameter(ParameterSetName = 'AllowDelegation')]
             [Switch] ${AllowDelegation},
-    
+
             [Parameter(ParameterSetName = 'DisallowDelegation')]
             [Switch] ${DisallowDelegation},
-    
+
             [Switch] ${TrustedToAuth},
-    
+
             [Alias('KerberosPreauthNotRequired', 'NoPreauth')]
             [Switch] ${PreauthNotRequired},
-    
+
             [ValidateNotNullOrEmpty()]
             [String] ${Domain},
-    
+
             [ValidateNotNullOrEmpty()]
             [Alias('Filter')]
             [String] ${LDAPFilter},
-    
+
             [ValidateNotNullOrEmpty()]
             [String[]] ${Properties},
-    
+
             [ValidateNotNullOrEmpty()]
             [Alias('ADSPath')]
             [String] ${SearchBase},
-    
+
             [ValidateNotNullOrEmpty()]
             [Alias('DomainController')]
             [String] ${Server},
-    
+
             [ValidateSet('Base', 'OneLevel', 'Subtree')]
             [String] ${SearchScope} = 'Subtree',
-    
+
             [ValidateRange(1, 10000)]
             [Int] ${ResultPageSize} = 200,
-    
+
             [ValidateRange(1, 10000)]
             [Int] ${ServerTimeLimit},
-    
+
             [ValidateSet('Dacl', 'Group', 'None', 'Owner', 'Sacl')]
             [String] ${SecurityMasks},
-    
+
             [Switch] ${Tombstone},
-    
+
             [Alias('ReturnOne')]
             [Switch] ${FindOne},
-    
+
             [Management.Automation.PSCredential]
             [Management.Automation.CredentialAttribute()]
             ${Credential} = [Management.Automation.PSCredential]::Empty,
-    
+
             [Switch] ${Raw}
         )
     BEGIN {
@@ -1039,7 +1039,7 @@ Function Get-DomainUser {
         If ($PSBoundParameters['Credential']) { $SearcherArguments['Credential'] = $Credential }
         $UserSearcher = Get-DomainSearcher @SearcherArguments
     }
-    
+
     PROCESS {
         If ($UserSearcher) {
             $IdentityFilter = ''
@@ -1147,7 +1147,6 @@ Function Get-DomainUser {
         }
     }
 }
-## TO DO : Refactor nexts functions
 Function Get-DomainObject {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '')]
     [OutputType('StrongView.ADObject')]
@@ -1244,15 +1243,15 @@ Function Get-DomainObject {
                     If ($ConvertedIdentityInstance) {
                         $ObjectDomain = $ConvertedIdentityInstance.SubString(0, $ConvertedIdentityInstance.IndexOf('/'))
                         $ObjectName = $IdentityInstance.Split('\')[1]
-                        $IdentityFilter += "(samAccountName=$ObjectName)"
+                        $IdentityFilter += "(samAccountName=$($ObjectName))"
                         $SearcherArguments['Domain'] = $ObjectDomain
-                        Write-Verbose "[Get-DomainObject] Extracted domain '$($ObjectDomain)' from '$IdentityInstance'"
+                        Write-Verbose "[Get-DomainObject] Extracted domain '$($ObjectDomain)' from '$($IdentityInstance)'"
                         $ObjectSearcher = Get-DomainSearcher @SearcherArguments
                     }
                 }Elseif ($IdentityInstance.Contains('.')) {
-                    $IdentityFilter += "(|(samAccountName=$IdentityInstance)(name=$IdentityInstance)(dnshostname=$IdentityInstance))"
+                    $IdentityFilter += "(|(samAccountName=$($IdentityInstance))(name=$($IdentityInstance))(dnshostname=$($IdentityInstance)))"
                 }Else {
-                    $IdentityFilter += "(|(samAccountName=$IdentityInstance)(name=$IdentityInstance)(displayname=$IdentityInstance))"
+                    $IdentityFilter += "(|(samAccountName=$($IdentityInstance))(name=$($IdentityInstance))(displayname=$($IdentityInstance)))"
                 }
             }
             If ($IdentityFilter -and ($IdentityFilter.Trim() -ne '') ) {
@@ -1260,7 +1259,7 @@ Function Get-DomainObject {
             }
 
             If ($PSBoundParameters['LDAPFilter']) {
-                Write-Verbose "[Get-DomainObject] Using additional LDAP filter: $LDAPFilter"
+                Write-Verbose "[Get-DomainObject] Using additional LDAP filter: $($LDAPFilter)"
                 $Filter += "$LDAPFilter"
             }
 
@@ -1269,15 +1268,15 @@ Function Get-DomainObject {
                 If ($_ -match 'NOT_.*') {
                     $UACField = $_.Substring(4)
                     $UACValue = [Int]($UACEnum::$UACField)
-                    $Filter += "(!(userAccountControl:1.2.840.113556.1.4.803:=$UACValue))"
+                    $Filter += "(!(userAccountControl:1.2.840.113556.1.4.803:=$($UACValue)))"
                 }Else {
                     $UACValue = [Int]($UACEnum::$_)
-                    $Filter += "(userAccountControl:1.2.840.113556.1.4.803:=$UACValue)"
+                    $Filter += "(userAccountControl:1.2.840.113556.1.4.803:=$($UACValue))"
                 }
             }
 
             If ($Filter -and $Filter -ne '') {
-                $ObjectSearcher.filter = "(&$Filter)"
+                $ObjectSearcher.filter = "(&$($Filter))"
             }
             Write-Verbose "[Get-DomainObject] Get-DomainObject filter string: $($ObjectSearcher.filter)"
 
@@ -1304,23 +1303,23 @@ Function Get-DomainObject {
 Function Convert-ADName {
     <#
     .SYNOPSIS
-    
+
     Converts Active Directory object names between a variety of formats.
-    
-    Author: Bill Stewart, Pasquale Lantella  
-    Modifications: Will Schroeder (@harmj0y)  
-    License: BSD 3-Clause  
-    Required Dependencies: None  
-    
+
+    Author: Bill Stewart, Pasquale Lantella
+    Modifications: Will Schroeder (@harmj0y)
+    License: BSD 3-Clause
+    Required Dependencies: None
+
     .DESCRIPTION
-    
+
     This function is heavily based on Bill Stewart's code and Pasquale Lantella's code (in LINK)
     and translates Active Directory names between various formats using the NameTranslate COM object.
-    
+
     .PARAMETER Identity
-    
+
     Specifies the Active Directory object name to translate, of the following form:
-    
+
         DN                short for 'distinguished name'; e.g., 'CN=Phineas Flynn,OU=Engineers,DC=fabrikam,DC=com'
         Canonical         canonical name; e.g., 'fabrikam.com/Engineers/Phineas Flynn'
         NT4               domain\username; e.g., 'fabrikam\pflynn'
@@ -1332,11 +1331,11 @@ Function Convert-ADName {
         CanonicalEx       extended canonical name format
         SPN               service principal name format; e.g. 'HTTP/kairomac.contoso.com'
         SID               Security Identifier; e.g., 'S-1-5-21-12986231-600641547-709122288-57999'
-    
+
     .PARAMETER OutputType
-    
+
     Specifies the output name type you want to convert to, which must be one of the following:
-    
+
         DN                short for 'distinguished name'; e.g., 'CN=Phineas Flynn,OU=Engineers,DC=fabrikam,DC=com'
         Canonical         canonical name; e.g., 'fabrikam.com/Engineers/Phineas Flynn'
         NT4               domain\username; e.g., 'fabrikam\pflynn'
@@ -1347,64 +1346,64 @@ Function Convert-ADName {
         UPN               user principal name; e.g., 'pflynn@fabrikam.com'
         CanonicalEx       extended canonical name format, e.g. 'fabrikam.com/Users/Phineas Flynn'
         SPN               service principal name format; e.g. 'HTTP/kairomac.contoso.com'
-    
+
     .PARAMETER Domain
-    
+
     Specifies the domain to use for the translation, defaults to the current domain.
-    
+
     .PARAMETER Server
-    
+
     Specifies an Active Directory server (domain controller) to bind to for the translation.
-    
+
     .PARAMETER Credential
-    
+
     Specifies an alternate credential to use for the translation.
-    
+
     .EXAMPLE
-    
+
     Convert-ADName -Identity "TESTLAB\harmj0y"
-    
+
     harmj0y@testlab.local
-    
+
     .EXAMPLE
-    
+
     "TESTLAB\krbtgt", "CN=Administrator,CN=Users,DC=testlab,DC=local" | Convert-ADName -OutputType Canonical
-    
+
     testlab.local/Users/krbtgt
     testlab.local/Users/Administrator
-    
+
     .EXAMPLE
-    
+
     Convert-ADName -OutputType dn -Identity 'TESTLAB\harmj0y' -Server PRIMARY.testlab.local
-    
+
     CN=harmj0y,CN=Users,DC=testlab,DC=local
-    
+
     .EXAMPLE
-    
+
     $SecPassword = ConvertTo-SecureString 'Password123!' -AsPlainText -Force
     $Cred = New-Object System.Management.Automation.PSCredential('TESTLAB\dfm', $SecPassword)
     'S-1-5-21-890171859-3433809279-3366196753-1108' | Convert-ADNAme -Credential $Cred
-    
+
     TESTLAB\harmj0y
-    
+
     .INPUTS
-    
+
     String
-    
+
     Accepts one or more objects name strings on the pipeline.
-    
+
     .OUTPUTS
-    
+
     String
-    
+
     Outputs a string representing the converted name.
-    
+
     .LINK
-    
+
     http://windowsitpro.com/active-directory/translating-active-directory-object-names-between-formats
     https://gallery.technet.microsoft.com/scriptcenter/Translating-Active-5c80dd67
     #>
-    
+
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [OutputType([String])]
     [CmdletBinding()]
