@@ -346,3 +346,42 @@ Function Get-Caller {
     }
 }
 #endregion GetCaller
+#region GetEnum
+Function Get-Enum {
+    <#
+        .SYNOPSIS
+        Get the values of an enumeration.
+
+        .DESCRIPTION
+        This function returns the values of an enumeration.
+
+        .PARAMETER EnumType
+        The enumeration type to get the values of.
+
+        .EXAMPLE
+        Get-Enum -EnumType [System.DayOfWeek]
+
+        Get the values of the System.DayOfWeek enumeration.
+    #>
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, Position = 0,ValueFromPipeline)]
+        ${EnumType},
+        [Switch] ${Full}
+    )
+    # Apparently in certain condition [MyEnum] is recognized as a string and not as a type so we need to force cast it as a type
+    $EnumTypeAsType = $EnumType -as [System.Type]
+    if ($Full) {
+        [Enum]::GetNames($EnumTypeAsType) | ForEach-Object {
+            [PSCustomObject]@{
+                Name = $_
+                Value = $EnumType::$_.Value__
+            }
+        }
+    }Else{
+        [Enum]::GetValues($EnumTypeAsType)
+    }
+    # Get the values of the enumeration
+    
+}
+#endregion GetEnum

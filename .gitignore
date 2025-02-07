@@ -1,5 +1,7 @@
 # Project old versions
 
+#Exclude debug.ps1
+debug.ps1
 
 # Windows image file caches
 Thumbs.db
