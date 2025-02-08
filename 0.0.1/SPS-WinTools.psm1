@@ -358,8 +358,11 @@ Function Get-Enum {
         .PARAMETER EnumType
         The enumeration type to get the values of.
 
+        .PARAMETER Full
+        Get the values and the names of the enumeration.
+
         .EXAMPLE
-        Get-Enum -EnumType [System.DayOfWeek]
+        Get-Enum -EnumType ([System.DayOfWeek])
 
         Get the values of the System.DayOfWeek enumeration.
     #>
