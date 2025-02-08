@@ -366,22 +366,20 @@ Function Get-Enum {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory, Position = 0,ValueFromPipeline)]
-        ${EnumType},
+        [System.Type] ${EnumType},
         [Switch] ${Full}
     )
-    # Apparently in certain condition [MyEnum] is recognized as a string and not as a type so we need to force cast it as a type
-    $EnumTypeAsType = $EnumType -as [System.Type]
-    if ($Full) {
-        [Enum]::GetNames($EnumTypeAsType) | ForEach-Object {
-            [PSCustomObject]@{
-                Name = $_
-                Value = $EnumType::$_.Value__
-            }
+    PROCESS {
+        if ($Full) {
+            [Enum]::GetNames($EnumType).ForEach({
+                [PSCustomObject]@{
+                    Name = $_
+                    Value = $EnumType::$_.Value__
+                }
+            })
+        }Else{
+            [Enum]::GetValues($EnumType)
         }
-    }Else{
-        [Enum]::GetValues($EnumTypeAsType)
     }
-    # Get the values of the enumeration
-    
 }
 #endregion GetEnum
