@@ -434,14 +434,23 @@ Function Get-Type {
             Name = $TypeObject.Name
             FullName = $TypeObject.FullName
             BaseType = $TypeObject.BaseType
-            # Find a way to show all the new() constructors with the details
-            Constructors = ''
-            Methods = $TypeObject.GetMethods() | Where-Object {($_.IsSpecialName -eq $False) -and ($_.isStatic -eq $false)} | ForEach-Object {
-                ".$($_.Name)()"
+            Constructors = $TypeObject.GetConstructors() | ForEach-Object {
+                if ($_.Name) {
+                    $Parameters = ($_.GetParameters() | ForEach-Object {"[$($_.ParameterType.Name)] `$$($_.Name)"}) -join ' '
+                    "[$($TypeObject.Name)]::New($Parameters)"
+                }Else{
+                    $Parameters = ($_.GetParameters() | ForEach-Object {"[$($_.ParameterType.Name)] `$$($_.Name)"}) -join ' '
+                    "[$($TypeObject.Name)]::$($_.Name)($Parameters)"
+                }
+            }
+            Methods = $TypeObject.GetMethods() | Where-Object {($_.IsSpecialName -eq $False) -and ($_.isStatic -eq $false)} | ForEach-Object  {
+                $Parameters = ($_.GetParameters() | ForEach-Object {"[$($_.ParameterType.Name)] `$$($_.Name)"}) -join ' '
+                "[$($_.ReturnType.Name)] .$($_.Name)($($Parameters))"
             }            
-            # find a way to show all static constructore with the details 
-            StaticMethods = $TypeObject.GetMethods() | Where-Object {($_.IsSpecialName -eq $False) -and ($_.isStatic -eq $True)} | ForEach-Object {".$($_.Name)()"}
-            # for properties find a way to detect nullable and display accordingly
+            StaticMethods = $TypeObject.GetMethods() | Where-Object {($_.IsSpecialName -eq $False) -and ($_.isStatic -eq $True)} | ForEach-Object {
+                $Parameters = ($_.GetParameters() | ForEach-Object {"[$($_.ParameterType.Name)] `$$($_.Name)"}) -join ' '
+                "[$($TypeObject.Name)]::$($_.Name)($Parameters)"
+            }
             Properties = $TypeObject.GetMembers() | Where-Object MemberType -eq 'Property' | ForEach-Object {
                 if ($_.PropertyType.UnderlyingSystemType.Name -like 'Nullable`1') {
                     ".$($_.Name) <Nullable<$($_.PropertyType.GenericTypeArguments.FullName)>>"
