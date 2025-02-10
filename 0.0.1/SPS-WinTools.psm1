@@ -355,7 +355,7 @@ Function Get-Enum {
         .DESCRIPTION
         This function returns the values of an enumeration.
 
-        .PARAMETER EnumType
+        .PARAMETER InputObject
         The enumeration type to get the values of.
 
         .PARAMETER Full
@@ -369,20 +369,91 @@ Function Get-Enum {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory, Position = 0,ValueFromPipeline)]
-        [System.Type] ${EnumType},
+        [Alias('Type','Enum','EnumType')]
+        [Object] ${InputObject},
         [Switch] ${Full}
     )
     PROCESS {
-        if ($Full) {
-            [Enum]::GetNames($EnumType).ForEach({
-                [PSCustomObject]@{
-                    Name = $_
-                    Value = $EnumType::$_.Value__
-                }
-            })
+        # Workaround for Powershell assuming the parameter [System.Type] is '[System.Type]' by transforming it to a string without []
+        if (($InputObject -as [String]) -match '^\[[a-zA-Z_][a-zA-Z0-9_]*\]$') {
+            $InputObject = $InputObject -Replace '\[|\]',''
+        }
+        Try { $TypeObject = $InputObject -as [System.Type] }Catch{ $TypeObject = $Null }
+        if ($Null -eq $TypeObject) { Throw "Unable to find type '$($InputObject)'" }
+        if ($Full -eq $True) {
+            Try {
+                [Enum]::GetNames($TypeObject).ForEach({
+                    [PSCustomObject]@{
+                        Name = $_
+                        Value = $TypeObject::$_.Value__
+                    }
+                })
+            }Catch{
+                
+            }
+            
         }Else{
-            [Enum]::GetValues($EnumType)
+            try {
+                [Enum]::GetValues($TypeObject)
+            }Catch {
+                Throw "Unable to find type '$($TypeObject)'"
+            }
+            
         }
     }
 }
 #endregion GetEnum
+#region Get-Type
+Function Get-Type {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, Position = 0,ValueFromPipeline)]
+        [Alias('Type')]
+        [Object] ${InputObject},
+        [Switch] ${Full}
+    )
+    # First check if the $InputObject is a System.Type
+    # Workaround for Powershell assuming the parameter [System.Type] is '[System.Type]' by transforming it to a string without []
+    # if ($InputObject -is [String]) {
+    #     if ($InputObject.StartsWith('[') -and $InputObject.EndsWith(']')) {
+    #         $InputObject = $InputObject -Replace '\[|\]',''
+    #     }
+    # }
+    if (($InputObject -as [String]) -match '^\[[a-zA-Z_][a-zA-Z0-9_]*\]$') {
+        $InputObject = $InputObject -Replace '\[|\]',''
+    }
+    Try { $TypeObject = $InputObject -as [System.Type] }Catch{ $TypeObject = $null }
+    if ($Null -eq $TypeObject) {
+        # Check if the InputObject is not a System.Type but a classic variable, try to get it's type
+        Try { $TypeObject = $InputObject.GetType() }Catch { $TypeObject = $Null}
+        if ($Null -eq $TypeObject) { Throw "Unexpected error while trying to get the type of '$($InputObject)'" }
+    }
+    # Now Object is a System.Type
+    if ($Full -eq $True) {
+        $HashTable = [Ordered] @{
+            Name = $TypeObject.Name
+            FullName = $TypeObject.FullName
+            BaseType = $TypeObject.BaseType
+            # Find a way to show all the new() constructors with the details
+            Constructors = ''
+            Methods = $TypeObject.GetMethods() | Where-Object {($_.IsSpecialName -eq $False) -and ($_.isStatic -eq $false)} | ForEach-Object {
+                ".$($_.Name)()"
+            }            
+            # find a way to show all static constructore with the details 
+            StaticMethods = $TypeObject.GetMethods() | Where-Object {($_.IsSpecialName -eq $False) -and ($_.isStatic -eq $True)} | ForEach-Object {".$($_.Name)()"}
+            # for properties find a way to detect nullable and display accordingly
+            Properties = $TypeObject.GetMembers() | Where-Object MemberType -eq 'Property' | ForEach-Object {
+                if ($_.PropertyType.UnderlyingSystemType.Name -like 'Nullable`1') {
+                    ".$($_.Name) <Nullable<$($_.PropertyType.GenericTypeArguments.FullName)>>"
+                }Else{
+                    ".$($_.Name) <$($_.PropertyType.FullName)>"
+                }
+            }
+        }
+        New-Object -TypeName PSOBJECT -Property $HashTable
+
+    }Else{
+        # just return the type FullName
+        $TypeObject.FullName
+    }
+}
