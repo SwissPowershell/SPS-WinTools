@@ -312,6 +312,7 @@ Function Get-Caller {
 
         .DESCRIPTION
         This function captures and returns the caller of the current command using the Get-PSCallStack function and the $MyInvocation automatic variable.
+        This function goal is to be used in try catch, scriptblock and in class methods for a better error handling
 
         .PARAMETER None
         This function does not take any parameters.
@@ -333,12 +334,10 @@ Function Get-Caller {
         $CallerScript = $MyInvocation.ScriptName
         $Line = $MyInvocation.ScriptLineNumber
     }
-
     # If the caller script is a scriptblock, use the current script name instead
     If ($Caller.Trim() -eq '<ScriptBlock>') {
         $Caller = $CallerScript
     }
-
     # Return the caller information
     [PSCustomObject]@{
         Caller = $Caller
