@@ -105,22 +105,22 @@ Retrieve the information from a given Type or the type related to a given variab
 ```powershell
 [System.String] | Get-TypeInfo -Full
 ```
-Retrieve all possible value for the [System.String] enum using pipeline
+Retrieve all constructors, methods and properties for the [System.String] type using pipeline. using pipeline
 
 ### Example 2
 
 ```powershell
 Get-TypeInfo -InputObject [System.String] -Full
 ```
-Retrieve all possible value for the [System.String] type
+Retrieve all constructors, methods and properties for the [System.String] type using pipeline.
 
 ### Example 3
 
 ```powershell
-$MyVar = @('1','2','3')
+[String[]] $MyVar = @('Coconut','Apple','Banana')
 Get-TypeInfo -InputObject $MyVar -Full
 ```
-Retrieve all possible value for the [String[]] type
+Retrieve all constructors, methods and properties for the [System.String[]] type using pipeline.
 
 ### Notes
 * Modification history

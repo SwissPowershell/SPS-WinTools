@@ -405,6 +405,37 @@ Function Get-EnumInfo {
 #endregion GetEnum
 #region Get-Type
 Function Get-TypeInfo {
+    <#
+        .SYNOPSIS
+        This function Get information about a given Type or Variable.
+
+        .DESCRIPTION
+        This function get the constructors, methods and properties of a given Type or Variable
+
+        .PARAMETER InputObject
+        The Object or type to get the information from.
+
+        .PARAMETER Full
+        Get constructor, method and properties of a given Type or Variable. 
+        If not set only the type fullname will be returned.
+
+        .EXAMPLE
+        [System.String] | Get-TypeInfo -Full
+        
+        Retrieve all constructors, methods and properties for the [System.String] type using pipeline.
+        
+        .EXAMPLE
+
+        Get-TypeInfo -InputObject [System.String] -Full
+
+        Retrieve all constructors, methods and properties for the [System.String] type.
+
+        .EXAMPLE
+        [String[]] $MyVar = @('Coconut','Apple','Banana')
+        Get-TypeInfo -InputObject $MyVar -Full
+
+        Retrieve all constructors, methods and properties for the [System.String[]] type.
+    #>
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory, Position = 0,ValueFromPipeline)]
@@ -430,34 +461,75 @@ Function Get-TypeInfo {
     }
     # Now Object is a System.Type
     if ($Full -eq $True) {
+        # Retrieve all the constructors
+        $Constructors = ForEach ($Constructor in $TypeObject.GetConstructors()) {
+            if ($Constructor.Name -eq '.Ctor') {
+                $UnnamedParameterCount = 0
+                $ConstructorParameters = ForEach ($Parameter in $Constructor.GetParameters()) {
+                    if ($Parameter.Name) {
+                        "[$($Parameter.ParameterType.Name)] `$$($Parameter.Name)"
+                    }Else{
+                        $UnnamedParameterCount ++
+                        "[$($Parameter.ParameterType.Name)] `$Param$($UnnamedParameterCount)"
+                    }
+                }
+                "[$($TypeObject.Name)]::New($($ConstructorParameters -join ', '))"
+            }Else{
+                $UnnamedParameterCount = 0
+                $ConstructorParameters = ForEach ($Parameter in $Constructor.GetParameters()) {
+                    if ($Parameter.Name) {
+                        "[$($Parameter.ParameterType.Name)] `$$($Parameter.Name)"
+                    }Else{
+                        $UnnamedParameterCount++
+                        "[$($Parameter.ParameterType.Name)] `$Param$($UnnamedParameterCount)"
+                    }
+                }
+                "[$($TypeObject.Name)]::$($Constructor.Name)($($ConstructorParameters -join ', '))"
+            }
+        }
+        # Retrieve all the Methods
+        $Methods = ForEach ($Method in $TypeObject.GetMethods()) {
+            if (($Method.IsSpecialName -eq $False) -and ($Method.isStatic -eq $false)) {
+                $UnnamedParameterCount = 0
+                $MethodParameters = ForEach ($Parameter in $Method.GetParameters()) {
+                    if ($Parameter.Name) {
+                        "[$($Parameter.ParameterType.Name)] `$$($Parameter.Name)"
+                    }Else{
+                        $UnnamedParameterCount++
+                        "[$($Parameter.ParameterType.Name)] `$Param$($UnnamedParameterCount)"
+                    }
+                    
+                }
+                "[$($TypeObject.Name)]::$($Method.Name)($($MethodParameters -join ', '))"
+            }
+        }
+        # Retrieve all the statics methods
+        $StaticMethod = ForEach ($Method in $TypeObject.GetMethods()) {
+            if (($Method.IsSpecialName -eq $False) -and ($Method.isStatic -eq $True)) {
+                $MethodParameters = ForEach ($Parameter in $Method.GetParameters()) {
+                    "[$($Parameter.ParameterType.Name)] `$$($Parameter.Name)"
+                }
+                "[$($TypeObject.Name)]::$($Method.Name)($($MethodParameters -join ', '))"
+            }
+        } 
+        # Retrieve the properties
+        $Properties = ForEach ($Property in $TypeObject.GetMembers()) {
+            if ($Property.MemberType -eq 'Property') {
+                if ($Property.PropertyType.UnderlyingSystemType.Name -like 'Nullable`1') {
+                    ".$($Property.Name) <Nullable<$($Property.PropertyType.GenericTypeArguments.FullName)>>"
+                }Else{
+                    ".$($Property.Name) <$($Property.PropertyType.FullName)>"
+                }
+            }
+        }
         $HashTable = [Ordered] @{
             Name = $TypeObject.Name
             FullName = $TypeObject.FullName
             BaseType = $TypeObject.BaseType
-            Constructors = $TypeObject.GetConstructors() | ForEach-Object {
-                if ($_.Name) {
-                    $Parameters = ($_.GetParameters() | ForEach-Object {"[$($_.ParameterType.Name)] `$$($_.Name)"}) -join ' '
-                    "[$($TypeObject.Name)]::New($Parameters)"
-                }Else{
-                    $Parameters = ($_.GetParameters() | ForEach-Object {"[$($_.ParameterType.Name)] `$$($_.Name)"}) -join ' '
-                    "[$($TypeObject.Name)]::$($_.Name)($Parameters)"
-                }
-            }
-            Methods = $TypeObject.GetMethods() | Where-Object {($_.IsSpecialName -eq $False) -and ($_.isStatic -eq $false)} | ForEach-Object  {
-                $Parameters = ($_.GetParameters() | ForEach-Object {"[$($_.ParameterType.Name)] `$$($_.Name)"}) -join ' '
-                "[$($_.ReturnType.Name)] .$($_.Name)($($Parameters))"
-            }            
-            StaticMethods = $TypeObject.GetMethods() | Where-Object {($_.IsSpecialName -eq $False) -and ($_.isStatic -eq $True)} | ForEach-Object {
-                $Parameters = ($_.GetParameters() | ForEach-Object {"[$($_.ParameterType.Name)] `$$($_.Name)"}) -join ' '
-                "[$($TypeObject.Name)]::$($_.Name)($Parameters)"
-            }
-            Properties = $TypeObject.GetMembers() | Where-Object MemberType -eq 'Property' | ForEach-Object {
-                if ($_.PropertyType.UnderlyingSystemType.Name -like 'Nullable`1') {
-                    ".$($_.Name) <Nullable<$($_.PropertyType.GenericTypeArguments.FullName)>>"
-                }Else{
-                    ".$($_.Name) <$($_.PropertyType.FullName)>"
-                }
-            }
+            Constructors = $Constructors
+            Methods = $Methods     
+            StaticMethods = $StaticMethod
+            Properties = $Properties
         }
         New-Object -TypeName PSOBJECT -Property $HashTable
 
