@@ -347,7 +347,7 @@ Function Get-Caller {
 }
 #endregion GetCaller
 #region GetEnum
-Function Get-Enum {
+Function Get-EnumInfo {
     <#
         .SYNOPSIS
         Get the values of an enumeration.
@@ -404,7 +404,7 @@ Function Get-Enum {
 }
 #endregion GetEnum
 #region Get-Type
-Function Get-Type {
+Function Get-TypeInfo {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory, Position = 0,ValueFromPipeline)]
