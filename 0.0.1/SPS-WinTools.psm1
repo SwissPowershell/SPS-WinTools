@@ -532,7 +532,6 @@ Function Get-TypeInfo {
             Properties = $Properties
         }
         New-Object -TypeName PSOBJECT -Property $HashTable
-
     }Else{
         # just return the type FullName
         $TypeObject.FullName
