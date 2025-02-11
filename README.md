@@ -54,9 +54,11 @@ Get parent and child processes of all running `powershell` processes in the same
 
 ### Notes
 * Modification history
-    * 2024/09/13 @guyrleech Script born
-    * 2024/09/16 @guyrleech First release
-    * 2024/09/17 @SwissPowerShell integrated in SPS-WinTools module
+    * 2024/09/13 @guyrleech Script born (Get Process Relatives)
+    * 2024/09/16 @guyrleech First release (Get Process Relatives)
+    * 2024/09/17 @SwissPowerShell integrated in SPS-WinTools module (Get Process Relatives)
+    * 2024/02/11 @SwissPowerShell added Get-EnumInfo & Get-TypeInfo
+
 ### License
 This module is licensed under the MIT License. See the LICENSE file for more details.
 
