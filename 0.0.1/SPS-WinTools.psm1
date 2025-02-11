@@ -362,7 +362,7 @@ Function Get-EnumInfo {
         Get the values and the names of the enumeration.
 
         .EXAMPLE
-        Get-Enum -EnumType ([System.DayOfWeek])
+        Get-EnumInfo -InputObject ([System.DayOfWeek])
 
         Get the values of the System.DayOfWeek enumeration.
     #>

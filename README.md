@@ -52,6 +52,76 @@ Get-ProcessRelatives -name powershell.exe -sessionid -1
 ```
 Get parent and child processes of all running `powershell` processes in the same session as the script.
 
+# Get Enum Info
+
+## Synopsis
+
+Get all the Value and integer value of a given Enum
+
+## Description
+
+Retrieve the information from a given Enum
+
+## Parameters
+
+- **InputObject**: The enum type in format : [ENUMTYPE] 'EnumType' or '[EnumType]'
+- **Full**: did not just return the value but also it's integer.
+
+## Examples
+
+### Example 1
+
+```powershell
+[System.DayOfWeek] | Get-EnumInfo -Full
+```
+Retrieve all possible value for the [DayOfWeek] enum using pipeline
+
+### Example 2
+
+```powershell
+Get-EnumInfo -InputObject [System.DayOfWeek] -Full
+```
+Retrieve all possible value for the [DayOfWeek] enum
+
+# Get Type Info
+## Synopsis
+
+Get constructor, method and properties of a given Type or Variable
+
+## Description
+
+Retrieve the information from a given Type or the type related to a given variable
+
+## Parameters
+
+- **InputObject**: The type in format : [ENUMTYPE] 'EnumType' or '[EnumType]' or any existing variable
+
+- **Full**: did not just the full type name but also constructors, methods and properties.
+
+## Examples
+
+### Example 1
+
+```powershell
+[System.String] | Get-TypeInfo -Full
+```
+Retrieve all possible value for the [System.String] enum using pipeline
+
+### Example 2
+
+```powershell
+Get-TypeInfo -InputObject [System.String] -Full
+```
+Retrieve all possible value for the [System.String] type
+
+### Example 3
+
+```powershell
+$MyVar = @('1','2','3')
+Get-TypeInfo -InputObject $MyVar -Full
+```
+Retrieve all possible value for the [String[]] type
+
 ### Notes
 * Modification history
     * 2024/09/13 @guyrleech Script born (Get Process Relatives)
