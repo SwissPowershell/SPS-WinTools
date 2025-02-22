@@ -442,19 +442,14 @@ Function Get-TypeInfo {
         [Object] ${InputObject},
         [Switch] ${Full}
     )
-    # First check if the $InputObject is a System.Type
-    # Workaround for Powershell assuming the parameter [System.Type] is '[System.Type]' by transforming it to a string without []
-    # if ($InputObject -is [String]) {
-    #     if ($InputObject.StartsWith('[') -and $InputObject.EndsWith(']')) {
-    #         $InputObject = $InputObject -Replace '\[|\]',''
-    #     }
-    # }
+    # Remove [] if the input object is a string.
     if (($InputObject -as [String]) -match '^\[[a-zA-Z_][a-zA-Z0-9_]*\]$') {
         $InputObject = $InputObject -Replace '\[|\]',''
     }
+    # try to get the type of the input object
     Try { $TypeObject = $InputObject -as [System.Type] }Catch{ $TypeObject = $null }
     if ($Null -eq $TypeObject) {
-        # Check if the InputObject is not a System.Type but a classic variable, try to get it's type
+        # Check if the InputObject is not a System.Type but a classic variable, try to get its type
         Try { $TypeObject = $InputObject.GetType() }Catch { $TypeObject = $Null}
         if ($Null -eq $TypeObject) { Throw "Unexpected error while trying to get the type of '$($InputObject)'" }
     }
